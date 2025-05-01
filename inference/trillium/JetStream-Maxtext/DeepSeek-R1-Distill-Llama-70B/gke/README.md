@@ -8,9 +8,9 @@ For this recipe, the following setup is used:
 
 - Orchestration - [Google Kubernetes Engine (GKE)](https://cloud.google.com/kubernetes-engine)
 - Job configuration and deployment - Helm chart is used to configure and deploy the
-  [Kubernetes Index Job](https://kubernetes.io/blog/2021/04/19/introducing-indexed-jobs).
+  [Kubernetes Deployment](https://kubernetes.io/docs/concepts/workloads/controllers/deployment).
   This job encapsulates the inference of the DeepSeek Distill R1 Llama 3.1 70B using JetStream MaxText Engine.
-  The chart generates the job's manifest, which adhere to best practices for using TPU v6e
+  The chart generates the deployment manifest, which adhere to best practices for using TPU v6e
   with Google Kubernetes Engine (GKE).
 
 ## Prerequisites
@@ -22,7 +22,6 @@ To prepare the required environment, complete the following steps:
   gcloud container clusters create <CLUSTER_NAME> \
       --project=<PROJECT_ID> \
       --zone=<ZONE> \
-      --cluster-version=1.31.5-gke.1023000 \
       --workload-pool=<PROJECT_ID>.svc.id.goog \
       --addons GcsFuseCsiDriver
   ```
@@ -34,7 +33,8 @@ To prepare the required environment, complete the following steps:
       --num-nodes=1 \
       --machine-type=ct6e-standard-8t \
       --cluster=<CLUSTER_NAME> \
-      --enable-autoscaling --total-min-nodes=1 --total-max-nodes=2
+      --enable-autoscaling --total-min-nodes=1 --total-max-nodes=2 \
+      --disk-size=500
   ```
 
 GKE creates the following resources for the recipe:
@@ -42,10 +42,7 @@ GKE creates the following resources for the recipe:
 - A GKE Standard cluster that uses Workload Identity Federation for GKE and has Cloud Storage FUSE CSI driver enabled.
 - A TPU Trillium node pool with a `ct6e-standard-8t` machine type. This node pool has one node, eight TPU chips, and autoscaling enabled
 
-
-
 Before running this recipe, ensure your environment is configured as follows:
-
 
 - A GKE cluster with the following setup:
     - A TPU Trillium node pool with a `ct6e-standard-8t` machine type. 
@@ -133,7 +130,7 @@ To build the container, complete the following steps from your client:
 
     ```bash
     cd $RECIPE_ROOT/docker
-    gcloud builds submit --region=${REGION} \
+    gcloud builds submit --region=global \
         --config cloudbuild.yml \
         --substitutions _ARTIFACT_REGISTRY=$ARTIFACT_REGISTRY,_JETSTREAM_MAXTEXT_IMAGE=$JETSTREAM_MAXTEXT_IMAGE,_JETSTREAM_MAXTEXT_VERSION=$JETSTREAM_MAXTEXT_VERSION \
         --timeout "2h" \
@@ -186,22 +183,23 @@ The recipe uses the helm chart to run the above steps.
     ```bash
     cd $RECIPE_ROOT
     helm install -f values.yaml \
-    --set volumes.gcsMounts[0].bucketName=${GCS_BUCKET} \
+    --set "volumes.gcsMounts[0].bucketName=${GCS_BUCKET}" \
     --set clusterName=$CLUSTER_NAME \
     --set job.image.repository=${ARTIFACT_REGISTRY}/${JETSTREAM_MAXTEXT_IMAGE} \
     --set job.image.tag=${JETSTREAM_MAXTEXT_VERSION} \
+    --set "job.bucketName=${GCS_BUCKET}" \
     $USER-serving-deepseek-r1-model \
-    $RECIPE_ROOT/prepare-model
+    $RECIPE_ROOT/serve-model
     ```
 
     b. To view the logs for the deployment, run
       ```bash
-      kubectl logs -f job/$USER-serving-deepseek-r1-model
+      kubectl logs -f deployment/$USER-serving-deepseek-r1-model-serving
       ```
 
     c. Verify if the deployment has started by running
       ```bash
-      kubectl get deployment/$USER-serving-deepseek-r1-model
+      kubectl get deployment/$USER-serving-deepseek-r1-model-serving
       ```
 
     d. Once the deployment has started, you'll see logs similar to:

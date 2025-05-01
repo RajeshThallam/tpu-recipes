@@ -95,13 +95,13 @@ spec:
           - name: TOKENIZER_DIR
             value: "/maxtext/assets/tokenizer_llama3.tiktoken"
           - name: CHECKPOINT_TPU_SCANNED
-            value: "/gcs/{{ .Values.model.name }}/scanned_ckpt"
+            value: "gs://{{ .Values.job.bucketName }}/models/{{ .Values.model.name }}/scanned_ckpt"
           - name: RUN_NAME
             value: "unscanned_ckpt"
           - name: CHECKPOINT_TPU_UNSCANNED
-            value: "/gcs/{{ .Values.model.name }}/output/unscanned_ckpt/checkpoints/0/items"
+            value: "gs://{{ .Values.job.bucketName }}/models/{{ .Values.model.name }}/output/unscanned_ckpt/checkpoints/0/items"
           - name: LOAD_PARAMETERS_PATH
-            value: "/gcs/{{ .Values.model.name }}/scanned_ckpt/0/items"
+            value: "gs://{{ .Values.job.bucketName }}/models/{{ .Values.model.name }}/scanned_ckpt/0/items"
           - name: MODEL_SIZE
             value: "llama3.1-70b"
           {{- range $gcs := $root.Values.volumes.gcsMounts }}
@@ -121,21 +121,17 @@ spec:
           - |
             set -eux
 
-            pip install torch --index-url https://download.pytorch.org/whl/cpu
             python3 -m nltk.downloader punkt_tab
 
             # echo $LIBTPU_INIT_ARGS
 
-            # # Download MMLU dataset
-            # apt update && apt install -y wget
-            # mkdir -p /gcs/benchmarks
-            # mkdir -p /gcs/mmlu
-            # cd /gcs/mmlu
-            # wget https://people.eecs.berkeley.edu/~hendrycks/data.tar -P /gcs/mmlu
-            # tar -xvf data.tar
-
-            # Download HuggingFace model
-            # huggingface-cli download {{ .Values.model.name }} --local-dir ${BASE_MODEL_PATH}
+            # Download MMLU dataset
+            apt update && apt install -y wget
+            mkdir -p /gcs/benchmarks
+            mkdir -p /gcs/mmlu
+            cd /gcs/mmlu
+            wget https://people.eecs.berkeley.edu/~hendrycks/data.tar -P /gcs/mmlu
+            tar -xvf data.tar
 
             # Parse server configurations from values file
             echo "MaxText configuration file:"
@@ -171,15 +167,20 @@ spec:
 
             # Step 1: Convert HuggingFace model to MaxText model
             {{- if .Values.convert_hf_ckpt }}
+            # Download HuggingFace model
+            huggingface-cli download {{ .Values.model.name }} --local-dir ${BASE_MODEL_PATH}
+
             # Convert HuggingFace model to MaxText model
-            JAX_PLATFORMS=cpu python3 /maxtext/MaxText/llama_or_mistral_ckpt.py \
+            cd /maxtext
+            JAX_PLATFORMS=cpu python3 -m MaxText.llama_or_mistral_ckpt \
               --base-model-path ${BASE_MODEL_PATH} \
               --maxtext-model-path ${CHECKPOINT_TPU_SCANNED} \
               --model-size ${MODEL_SIZE} \
               --huggingface-checkpoint True
 
             # Step 2: Convert scanned checkpoint to unscanned checkpoint for better serving performance
-            JAX_PLATFORMS=cpu python3 /maxtext/MaxText/generate_param_only_checkpoint.py \
+            cd /maxtext
+            JAX_PLATFORMS=cpu python3 -m MaxText.generate_param_only_checkpoint \
               /maxtext/MaxText/configs/base.yml \
               async_checkpointing=false \
               base_output_directory=${BASE_MODEL_PATH}/output \
@@ -191,7 +192,8 @@ spec:
 
 
             # Step 3: Start the JetStream MaxText server
-            python3 /maxtext/MaxText/maxengine_server.py \
+            cd /maxtext
+            python3 -m MaxText.maxengine_server \
               /maxtext/MaxText/configs/base.yml \
               "${OPTIONS[@]}"
 

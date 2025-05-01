@@ -49,7 +49,10 @@ RUN cd /JetStream/benchmarks && \
 pip install -r requirements.in
 
 RUN cd maxtext/ && \
-bash setup.sh JAX_VERSION=0.5.0
+bash setup.sh JAX_VERSION=0.5.1
+
+RUN pip install torch --index-url https://download.pytorch.org/whl/cpu && \
+pip install hf_transfer
 
 # Reset working directory to /workspace
 WORKDIR /workspace
